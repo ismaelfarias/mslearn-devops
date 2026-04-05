@@ -234,7 +234,10 @@ for ($i = 1; $i -le $iterationCount; $i++) {
     
     try {
         # Update existing iteration with dates
-        az boards iteration project update --path "\$iterationPath" --start-date $startDateStr --finish-date $endDateStr --output none 2>$null
+        az boards iteration project update --path $iterationPath --start-date $startDateStr --finish-date $endDateStr --output none 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Iteration update failed"
+        }
         if ($script:availableIterations -notcontains $iterationPath) {
             $script:availableIterations += $iterationPath
         }
@@ -246,11 +249,21 @@ for ($i = 1; $i -le $iterationCount; $i++) {
 
 # Collect valid iterations from the project once and reuse everywhere
 try {
-    $iterationListJson = az boards iteration project list --output json 2>$null
+    $iterationListJson = az boards iteration project list --depth 1 --output json 2>$null
     if ($iterationListJson) {
         $iterationList = $iterationListJson | ConvertFrom-Json
-        foreach ($iteration in $iterationList) {
-            if ($iteration.path -match "^\\$Project\\Iteration(\\Iteration)? \d+$") {
+        $iterationNodes = @()
+
+        if ($iterationList.children) {
+            $iterationNodes = @($iterationList.children)
+        } elseif ($iterationList -is [System.Array]) {
+            $iterationNodes = @($iterationList)
+        } else {
+            $iterationNodes = @($iterationList)
+        }
+
+        foreach ($iteration in $iterationNodes) {
+            if ($iteration.path -and $iteration.path -match "^$([regex]::Escape("$Project\\"))Iteration \d+$") {
                 $normalizedPath = $iteration.path.TrimStart("\")
                 if ($script:availableIterations -notcontains $normalizedPath) {
                     $script:availableIterations += $normalizedPath
@@ -272,7 +285,10 @@ Write-Host "`nAdding Iterations to Team backlog..." -ForegroundColor Yellow
 $team = "$Project Team"
 foreach ($iterationPath in $script:availableIterations) {
     try {
-        az boards iteration team add --id "\$iterationPath" --team $team --output none 2>$null
+        az boards iteration team add --id $iterationPath --team $team --output none 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Team iteration add failed"
+        }
         Write-Host "  Added $iterationPath to team backlog" -ForegroundColor Green
     } catch {
         Write-Host "  $iterationPath already in team backlog" -ForegroundColor DarkGray
